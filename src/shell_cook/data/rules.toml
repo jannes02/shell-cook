@@ -1,0 +1,84 @@
+# Rules for `cook`. Show: `cook rules`, change: `cook configure "<request>"`.
+
+[whitelist]
+# Tools the agent may use while exploring without confirmation (read-only!).
+# File contents are read with the Read tool only, so the [deny] path rules
+# apply. cat/head/tail/jq are deliberately not listed.
+tools = [
+    "Read", "Glob", "Grep",
+    "Bash(ls:*)", "Bash(wc:*)", "Bash(file:*)", "Bash(which:*)",
+    "Bash(pwd)", "Bash(ps:*)", "Bash(pgrep:*)", "Bash(df:*)", "Bash(du:*)",
+    "Bash(stat:*)", "Bash(uname:*)", "Bash(date:*)",
+]
+
+[deny]
+# Paths the agent must never read (Claude Code permission rules, applied on a
+# best-effort basis to Read, Grep and Glob).
+tools = [
+    "Read(~/.ssh/**)", "Read(~/.gnupg/**)", "Read(~/.aws/**)",
+    "Read(~/.kube/**)", "Read(~/.config/gcloud/**)", "Read(~/.docker/config.json)",
+    "Read(~/.netrc)", "Read(~/.git-credentials)", "Read(~/.claude/**)",
+    "Read(**/.env)", "Read(**/.env.*)", "Read(**/*.pem)", "Read(**/*.key)",
+    "Read(**/id_rsa*)", "Read(**/id_ed25519*)",
+]
+
+[blacklist]
+# Hard block. Regex patterns (Python `re.search`), tried on the raw and on a
+# normalized command (quotes and backslashes removed). If one matches, the
+# command is blocked and NOT printed.
+patterns = [
+    # rm -r on /, ~ or $HOME, any flag order or spelling
+    '\brm\b(?=[^;&|]*(?:\s-[a-zA-Z]*[rR]|\s--recursive\b))[^;&|]*\s(?:/|/\*|~|~/|~/\*|\$HOME|\$HOME/|\$HOME/\*)(?=\s|;|&|\||$)',
+    # raw writes to block devices
+    '\bdd\b[^;&|]*\bof=/dev/(?:sd|nvme|hd|vd|mmcblk|loop)',
+    '(?:>|\btee\b[^;&|]*)\s*/dev/(?:sd|nvme|hd|vd|mmcblk)',
+    # filesystem / partition tools in command position
+    '(?:^|[;&|(]\s*|\bsudo\s+)(?:mkfs(?:\.\w+)?|wipefs|shred|fdisk|sfdisk|parted)\b',
+    # fork bomb
+    '[\w:]+\(\)\s*\{[^}]*\|\s*[\w:]+\s*&',
+    # recursive chmod/chown on /
+    '\b(?:chmod|chown)\b[^;&|]*\s-[a-zA-Z]*R[a-zA-Z]*[^;&|]*\s/(?=\s|;|&|\||$)',
+    # power state
+    '(?:^|[;&|(]\s*|\bsudo\s+|\bsystemctl\s+)(?:shutdown|reboot|poweroff|halt)\b',
+    # download and execute
+    '\b(?:curl|wget)\b[^;&]*\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:ba|z|da|k)?sh\b',
+    '\b(?:ba|z|da|k)?sh\s+(?:-\w+\s+)*(?:<\(|\$\()\s*(?:curl|wget)\b',
+    '\bbase64\b[^;&]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b',
+]
+
+[review]
+# Tripwires: if one matches, the command is NOT blocked, but the second-stage
+# risk review (-s) is forced. sudo/doas/pkexec/su are always checked in code.
+triggers = [
+    '\brm\b[^;&|]*\s(?:-[a-zA-Z]*[rR]|--recursive\b)',
+    '\s-delete\b',
+    '\s-exec(?:dir)?\b',
+    '\bxargs\b',
+    '\bdd\b',
+    '\b(?:curl|wget)\b',
+    '\bbase64\b',
+    '\beval\b',
+    '\b(?:ba|z|da|k)?sh\s+(?:-\w+\s+)*-\w*c\b',
+    '\b(?:chmod|chown|chgrp)\b',
+    '\b(?:kill|killall|pkill)\b',
+    '\bsed\b[^;&|]*\s-[a-zA-Z]*i',
+    # redirection into a file (not /dev/null, not fd duplication like >&2)
+    '(?:^|[\s;|&(])>{1,2}\s*(?!/dev/null\b|&)[^\s>]',
+    '\b(?:apt|apt-get|dpkg|snap|flatpak|pip3?|npm|uv)\b[^;&|]*\b(?:install|remove|purge|uninstall|upgrade)\b',
+    '\b(?:systemctl|service)\b[^;&|]*\b(?:stop|restart|disable|mask|kill)\b',
+    '\b(?:mv|truncate|tee)\b',
+]
+
+[no_gos]
+# Free-text rules passed to the model.
+rules = [
+    "Explore read-only; never run commands that modify or delete anything.",
+    "The command should be non-destructive (no deleting or overwriting) unless the task explicitly requires it.",
+    "Use sudo only if the task strictly needs root (a risk assessment is then forced automatically); otherwise no system changes (installing/removing packages, stopping services, changing configuration).",
+    "No access to ~/.ssh, ~/.gnupg, passwords, API keys or browser profiles.",
+    "Kill processes only by specific PID; no killall or pkill with broad patterns.",
+    "awk may be mawk (the default on Debian and Ubuntu), not gawk: avoid gawk extensions, use regex only in conditions ($0 ~ /x/), not as a value in assignments or ternaries, and no \\/ in regex.",
+    "Keep the command simple and robust. For complex logic (counting, grouping, branching) prefer a simple pipeline of grep/sort/uniq -c over a long awk one-liner.",
+    "Verify patterns beforehand with the allowed read-only commands (e.g. ps -eo stat=,args= | head) so they really match.",
+    "Prefer standard tools; use jq only if it is installed (check with which jq).",
+]

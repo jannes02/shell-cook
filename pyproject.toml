@@ -1,0 +1,43 @@
+[project]
+name = "shell-cook"
+version = "0.1.0"
+description = "Turn a plain-language request into a reviewed shell command with Claude."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11, <3.15"
+dependencies = [
+    "anyio>=4",
+    "claude-agent-sdk>=0.2.178",
+]
+
+[project.scripts]
+shell-cook = "shell_cook.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/shell_cook"]
+
+[dependency-groups]
+dev = [
+    "isort>=9.0.2",
+    "pyink>=26.5.1",
+    "pylint>=4.1.3",
+]
+
+[tool.pyink]
+line-length = 80
+pyink-indentation = 4
+target-version = [
+    "py311",
+    "py312",
+    "py313",
+    "py314",
+]
+
+[tool.isort]
+profile = "google"
+line_length = 80
